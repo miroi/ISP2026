@@ -1,0 +1,75 @@
+========================================================================
+Hg adsorption on Au(111)  --  CHGNet + D3 (tight convergence)
+========================================================================
+Slab:       Au(111) 4x4x4  (64 Au atoms)
+Adsorbate:  1 Hg atom, initial height 2.0 A
+Vacuum:     10.0 A
+Optimizer:  BFGS, fmax < 0.01 eV/A (maxsteps=500)
+Calculator: CHGNet (0.3.0) + D3 (xc=pbe, damping=bj)
+Hg reference: relaxed Hg2 dimer, E/2 (box=12.0 A, d0=3.63 A)
+Degeneracy threshold: 1.00 meV
+------------------------------------------------------------------------
+    Initializing CHGNet + D3 (model=0.3.0, device=cuda, xc=pbe, damping=bj)...
+CHGNet v0.3.0 initialized with 412,525 parameters
+CHGNet will run on cuda
+CHGNet will run on cuda
+    CHGNet + D3 calculator ready.
+
+[1/2] Reference energies
+    E_slab           = -233.819901 eV   (steps=6, fmax=0.005861  [OK])
+    E(Hg2)/2         = 0.077098 eV/atom   (steps=5, fmax=0.006656, d(Hg-Hg)=2.807 A  [BOND SUSPECT])
+    Hg2 reference:   exp. d(Hg-Hg) = 3.630 A, CCSD(T) = 3.68 A, D_e ~ 0.050 eV
+
+    WARNING: relaxed Hg-Hg bond length (2.807 A) differs from the spectroscopic value (3.63 A) by more than 0.3 A. The Hg reference may not be physical.
+
+[2/2] Adsorption sites
+
+  -> fcc
+     E_total = -234.832413 eV
+     E_ads   = -1.089610 eV
+     fmax    = 0.008844 eV/A   [OK, 16 steps]
+
+  -> hcp
+     E_total = -234.827576 eV
+     E_ads   = -1.084773 eV
+     fmax    = 0.008347 eV/A   [OK, 17 steps]
+
+  -> bridge
+     E_total = -234.832031 eV
+     E_ads   = -1.089229 eV
+     fmax    = 0.009864 eV/A   [OK, 66 steps]
+
+  -> ontop
+     E_total = -234.608047 eV
+     E_ads   = -0.865245 eV
+     fmax    = 0.009833 eV/A   [OK, 25 steps]
+
+========================================================================
+Summary
+========================================================================
+Site        E_total (eV)      E_ads (eV)     fmax (eV/A)   Steps
+----------------------------------------------------------------
+fcc          -234.832413       -1.089610        0.008844      16
+hcp          -234.827576       -1.084773        0.008347      17
+bridge       -234.832031       -1.089229        0.009864      66
+ontop        -234.608047       -0.865245        0.009833      25
+
+Site preference (most stable first):
+  1. fcc       E_ads = -1.089610 eV  <-- most stable
+  2. bridge    E_ads = -1.089229 eV
+  3. hcp       E_ads = -1.084773 eV
+  4. ontop     E_ads = -0.865245 eV
+
+Numerical resolution check (threshold = 1.00 meV):
+  fcc vs bridge: gap = 0.38 meV  -> NOT RESOLVABLE, treat as degenerate
+  bridge vs hcp: gap = 4.46 meV  -> resolved
+  hcp vs ontop: gap = 219.53 meV  -> resolved
+
+Literature comparison (for context):
+  PBE (no dispersion):        -0.42 eV
+  Experimental E_ads:         -1.01 +/- 0.03 eV
+  Experimental enthalpy:      -0.92 eV
+  This work (CHGNet+D3, fcc): -1.09 eV
+
+All calculations converged.
+
