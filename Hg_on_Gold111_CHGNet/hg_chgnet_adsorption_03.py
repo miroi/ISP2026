@@ -2,14 +2,13 @@
 """
 Hg adsorption on Au(111) using CHGNet + D3 dispersion (tight convergence).
 
-This script combines the CHGNet universal MLIP with a D3 dispersion
-correction via the torch-dftd library and ASE's SumCalculator.
+Reference energy for Hg is computed from a small Hg2 dimer (relaxed in a
+large box, energy divided by 2). This avoids the isolated-atom graph
+problem that makes a single Hg atom unreliable for CHGNet, while staying
+closer to the "single atom" picture than a bulk reference would.
 
-Note on reference energies: The isolated Hg atom reference is unreliable
-for graph-based MLIPs like CHGNet due to the lack of neighbors within the
-graph cutoff. The adsorption energies reported here should be interpreted
-as relative rankings. For absolute values, a bulk/cohesive reference is
-recommended.
+The Hg2 bond length is checked against the experimental value (~3.0 A
+for the van der Waals dimer) as a sanity check on the reference.
 """
 
 import os
@@ -24,6 +23,9 @@ from ase.calculators.mixing import SumCalculator
 # Silence harmless torch.load FutureWarnings
 warnings.filterwarnings("ignore", category=FutureWarning,
                         message=".*weights_only.*")
+# Silence the numpy->tensor conversion warning from torch_dftd
+warnings.filterwarnings("ignore", category=UserWarning,
+                        message=".*Creating a tensor from a list.*")
 
 from chgnet.model.dynamics import CHGNetCalculator
 from chgnet.model.model import CHGNet
@@ -52,6 +54,12 @@ CHGNET_DEVICE  = "cuda"      # "cuda" | "cpu"
 D3_XC          = "pbe"       # exchange-correlation functional for D3 params
 D3_DAMPING     = "bj"        # "zero" | "bj" (Becke-Johnson)
 D3_DEVICE      = "cuda"      # "cuda" | "cpu"
+
+# Hg2 reference configuration
+HG2_BOX        = 12.0        # cubic box side length (Angstrom)
+HG2_INIT_DIST  = 3.0         # initial Hg-Hg distance (Angstrom)
+HG2_EXP_DIST   = 3.0         # experimental/CCSD(T) Hg2 bond length (Angstrom)
+HG2_TOL        = 0.5         # tolerance for the sanity check (Angstrom)
 
 OUT_STRUCT  = 'structures'
 OUT_LOGS    = 'logs'
@@ -89,9 +97,6 @@ def get_chgnet_d3_calculator():
     )
 
     # D3 dispersion correction
-    # Note: TorchDFTD3Calculator needs a template atoms object to initialize
-    # some internal tensors. We create a dummy and it will be updated
-    # when the calculator is actually used on real atoms.
     dummy_atoms = Atoms('H', positions=[[0, 0, 0]], cell=[10, 10, 10])
     d3_calc = TorchDFTD3Calculator(
         atoms=dummy_atoms,
@@ -137,18 +142,54 @@ def compute_E_slab(calc):
 
 
 def compute_E_atom(calc):
-    """Energy of an isolated Hg atom in a large box (no relaxation).
+    """Per-atom energy of Hg from a relaxed Hg2 dimer.
 
-    WARNING: This reference is problematic for graph-based MLIPs like CHGNet
-    because an isolated atom has no neighbors within the graph cutoff.
-    The value is an extrapolation artifact. Use with caution.
+    A single isolated Hg atom is unreliable for graph-based MLIPs like
+    CHGNet because it has no neighbors within the graph cutoff. Using a
+    small dimer instead ensures both atoms have a well-defined local
+    environment, while still keeping the reference close to the
+    "single atom" picture.
+
+    Returns
+    -------
+    E_per_atom : float
+        Total DFT-D3 energy of the relaxed Hg2 dimer, divided by 2 (eV/atom).
+    info : dict
+        Diagnostic info: bond length, convergence, etc.
     """
-    atom = Atoms(ADSORBATE,
-                 positions=[[0, 0, 0]],
-                 cell=[10, 10, 10],
-                 pbc=False)
-    atom.calc = calc
-    return atom.get_potential_energy()
+    # Build Hg2 dimer in a large cubic box
+    d = HG2_INIT_DIST
+    dimer = Atoms(
+        [ADSORBATE, ADSORBATE],
+        positions=[[0.0, 0.0, 0.0], [d, 0.0, 0.0]],
+        cell=[HG2_BOX, HG2_BOX, HG2_BOX],
+        pbc=True,
+    )
+
+    E_total, fmax, nsteps = relax(
+        dimer, calc,
+        traj_path=os.path.join(OUT_TRAJ, 'hg2_relax.traj'),
+        log_path=os.path.join(OUT_LOGS, 'hg2_relax.log'),
+        label='Hg2',
+    )
+
+    # Bond length after relaxation
+    d_relaxed = float(np.linalg.norm(dimer.positions[1] - dimer.positions[0]))
+
+    # Sanity check: if the dimer collapsed or dissociated, the reference
+    # is not trustworthy and we should tell the user.
+    bond_ok = abs(d_relaxed - HG2_EXP_DIST) < HG2_TOL
+
+    info = {
+        'E_total':    E_total,
+        'E_per_atom': E_total / 2.0,
+        'd_relaxed':  d_relaxed,
+        'fmax':       fmax,
+        'nsteps':     nsteps,
+        'bond_ok':    bond_ok,
+        'converged':  fmax < FMAX,
+    }
+    return info
 
 
 # ============================================================
@@ -198,6 +239,7 @@ def main():
     print(f"Optimizer:  BFGS, fmax < {FMAX} eV/A (maxsteps={MAXSTEPS})")
     print(f"Calculator: CHGNet ({CHGNET_MODEL}) + D3 "
           f"(xc={D3_XC}, damping={D3_DAMPING})")
+    print(f"Hg reference: relaxed Hg2 dimer, E/2 (box={HG2_BOX} A)")
     print(f"Degeneracy threshold: {DEGENERACY_THRESHOLD*1000:.2f} meV")
     print("-" * 72)
 
@@ -207,17 +249,30 @@ def main():
     # --- Reference energies ---------------------------------
     print("\n[1/2] Reference energies")
     E_slab, fmax_slab, nsteps_slab = compute_E_slab(calc)
-    E_atom = compute_E_atom(calc)
     slab_ok = fmax_slab < FMAX
     print(f"    E_slab           = {E_slab:.6f} eV"
           f"   (steps={nsteps_slab}, fmax={fmax_slab:.6f}"
           f"  [{'OK' if slab_ok else 'NOT CONVERGED'}])")
-    print(f"    E_atom({ADSORBATE:<2s})     = {E_atom:.6f} eV"
-          f"   [WARNING: unreliable for graph MLIPs]")
+
+    hg_info = compute_E_atom(calc)
+    E_atom = hg_info['E_per_atom']
+    print(f"    E(Hg2)/2         = {E_atom:.6f} eV/atom"
+          f"   (steps={hg_info['nsteps']}, "
+          f"fmax={hg_info['fmax']:.6f}, "
+          f"d(Hg-Hg)={hg_info['d_relaxed']:.3f} A"
+          f"  [{'bond OK' if hg_info['bond_ok'] else 'BOND SUSPECT'}])")
 
     if not slab_ok:
         print("\n    WARNING: slab did not reach FMAX. "
               "E_slab (and thus every E_ads) is unreliable.")
+    if not hg_info['converged']:
+        print("\n    WARNING: Hg2 reference did not converge. "
+              "E_atom (and thus every E_ads) is unreliable.")
+    if not hg_info['bond_ok']:
+        print(f"\n    WARNING: relaxed Hg-Hg bond length "
+              f"({hg_info['d_relaxed']:.3f} A) differs from the expected "
+              f"~{HG2_EXP_DIST} A by more than {HG2_TOL} A. "
+              f"The Hg reference may not be physical.")
 
     # --- Site sweep -----------------------------------------
     print("\n[2/2] Adsorption sites")
@@ -273,7 +328,10 @@ def main():
               f"gap = {gap*1000:.2f} meV  -> {tag}")
 
     # --- Convergence summary --------------------------------
-    if all(r['converged'] for r in results) and slab_ok:
+    all_ok = (all(r['converged'] for r in results)
+              and slab_ok
+              and hg_info['converged'])
+    if all_ok:
         print("\nAll calculations converged.\n")
     else:
         print("\nWARNING: not all calculations converged!\n")
