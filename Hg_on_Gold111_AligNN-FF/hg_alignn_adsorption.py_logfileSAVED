@@ -1,0 +1,65 @@
+(molmatmodel) milias@DESKTOP-7OTLCGO:~/work/projects/ISP2026/Hg_on_Gold111_AligNN-FF/.python hg_alignn_adsorption.py
+========================================================================
+Hg adsorption on Au(111)  --  ALIGNN-FF
+========================================================================
+Slab:       Au(111) 4x4x4  (64 Au atoms)
+Adsorbate:  1 Hg atom, initial height 2.0 A
+Vacuum:     10.0 A
+Optimizer:  BFGS, fmax < 0.01 eV/A (maxsteps=500)
+Calculator: ALIGNN-FF (pretrained JARVIS-DFT)
+Degeneracy threshold: 1.00 meV
+------------------------------------------------------------------------
+    Initializing ALIGNN-FF (pretrained JARVIS-DFT model)...
+dir_path /home/milias/.cache/atomgptlab/alignn_ff/matpes_r2scan
+100%|█████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 3.90M/3.90M [00:01<00:00, 2.91MiB/s]
+    ALIGNN-FF calculator ready.
+
+[1/2] Reference energies
+    E_slab           = -3230.164307 eV   (steps=9, fmax=0.005725  [OK])
+    E_atom(Hg)     = -48.027420 eV
+
+[2/2] Adsorption sites
+
+  -> fcc
+     E_total = -3279.168720 eV
+     E_ads   = -0.976994 eV
+     fmax    = 0.007394 eV/A   [OK, 31 steps]
+
+  -> hcp
+     E_total = -3279.147148 eV
+     E_ads   = -0.955421 eV
+     fmax    = 0.008308 eV/A   [OK, 25 steps]
+
+  -> bridge
+     E_total = -3279.244843 eV
+     E_ads   = -1.053116 eV
+     fmax    = 0.009856 eV/A   [OK, 69 steps]
+
+  -> ontop
+     E_total = -3278.935890 eV
+     E_ads   = -0.744164 eV
+     fmax    = 0.008529 eV/A   [OK, 41 steps]
+
+========================================================================
+Summary
+========================================================================
+Site        E_total (eV)      E_ads (eV)     fmax (eV/A)   Steps
+----------------------------------------------------------------
+fcc         -3279.168720       -0.976994        0.007394      31
+hcp         -3279.147148       -0.955421        0.008308      25
+bridge      -3279.244843       -1.053116        0.009856      69
+ontop       -3278.935890       -0.744164        0.008529      41
+
+Site preference (most stable first):
+  1. bridge    E_ads = -1.053116 eV  <-- most stable
+  2. fcc       E_ads = -0.976994 eV
+  3. hcp       E_ads = -0.955421 eV
+  4. ontop     E_ads = -0.744164 eV
+
+Numerical resolution check (threshold = 1.00 meV):
+  bridge vs fcc: gap = 76.12 meV  -> resolved
+  fcc vs hcp: gap = 21.57 meV  -> resolved
+  hcp vs ontop: gap = 211.26 meV  -> resolved
+
+All calculations converged.
+
