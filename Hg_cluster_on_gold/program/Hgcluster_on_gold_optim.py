@@ -4,6 +4,7 @@ from ase.cluster import Icosahedron
 from ase.optimize import BFGS
 from ase.constraints import FixAtoms
 from chgnet.model.dynamics import CHGNetCalculator
+from ase.io import read, write
 
 # 1. Substrate: Au(111) 4x4 surface with 3 layers
 # Vacuum of 10A prevents interaction with periodic images in Z
@@ -35,4 +36,12 @@ dyn.run(fmax=0.05)
 energy = slab.get_potential_energy()
 print(f"Optimization finished!")
 print(f"Final Potential Energy: {energy:.4f} eV")
+
+traj = read('Hg13_adsorption.traj', index=':')  # Read all frames
+
+# Get the last frame (final relaxed structure)
+final_structure = traj[-1]
+
+# Export just the atomic structure to a VASP file
+write('relaxed_structure.vasp', final_structure, format='vasp', direct=False)
 
