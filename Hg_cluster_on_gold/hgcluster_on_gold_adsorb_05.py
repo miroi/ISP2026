@@ -7,6 +7,9 @@ Usage:
     python hgcluster_on_gold_adsorb.py --cluster hg7
     python hgcluster_on_gold_adsorb.py --cluster hg4
 
+    # optionally override slab size:
+    python hgcluster_on_gold_adsorb.py --cluster hg4 --slab 9
+
 Computes:
     E_ads = E_total - (E_slab + E_cluster)
 
@@ -20,7 +23,8 @@ Diagnostics:
     - Hg-Au and Hg-Hg start-distance assertions
     - lateral COM drift during relaxation
     - minimum Hg-Au contact distance (end)
-    - minimum Hg-Hg image distance (periodic coupling)
+    - minimum intra-cluster Hg-Hg distance (end)
+    - edge-to-edge gap to periodic image (correct image metric)
     - cluster Rg and diameter (isolated vs. adsorbed)
     - lateral footprint (wetting descriptor)
 """
@@ -51,9 +55,14 @@ parser.add_argument(
     "--cluster", choices=["hg4", "hg7"], default="hg7",
     help="Which Hg cluster to adsorb (default: hg7)"
 )
+parser.add_argument(
+    "--slab", type=int, default=5,
+    help="Slab lateral size (integer). Uses (N, N, 4). Default: 5"
+)
 args = parser.parse_args()
 
 CLUSTER_KIND = args.cluster
+SLAB_N       = args.slab
 
 
 # ============================================================
@@ -61,7 +70,7 @@ CLUSTER_KIND = args.cluster
 # ============================================================
 FMAX           = 0.05
 MAXSTEPS       = 1500
-SLAB_SIZE      = (5, 5, 4)      # 100 Au atoms, ~14.6 Å side
+SLAB_SIZE      = (SLAB_N, SLAB_N, 4)
 VACUUM         = 20.0
 ADS_HEIGHT     = 2.5
 MACE_MODEL     = "medium"
@@ -72,8 +81,10 @@ DISPERSION     = True
 MIN_ALLOWED_HG_AU  = 2.0        # Å
 MIN_ALLOWED_HG_HG  = 2.5        # Å (within the cluster, no MIC)
 DRIFT_WARN_THRESH  = 1.0        # Å
-IMAGE_WARN_HG_HG   = 6.0        # Å
-IMAGE_WARN_RATIO   = 3.0        # cell side / cluster diameter
+
+# Edge-to-edge gap thresholds (correct image-coupling metric)
+EDGE_GAP_WARN      = 6.0        # Å — below this, real image coupling
+EDGE_GAP_NOTE      = 10.0       # Å — below this, weak coupling possible
 
 
 # ============================================================
@@ -128,9 +139,8 @@ def build_hg7():
             d_eq_ax = sqrt(R_eq^2 + R_ax^2)
         Setting d_eq_ax = 3.0 Å gives R_ax = 1.58 Å
     """
-    R_eq = 2.55      # equatorial radius (Å)
-    R_ax = 1.58      # axial height (Å)
-
+    R_eq = 2.55
+    R_ax = 1.58
     angles = np.linspace(0, 2*np.pi, 5, endpoint=False)
     eq = np.array([[R_eq*np.cos(a), R_eq*np.sin(a), 0.0]
                    for a in angles])
@@ -167,8 +177,14 @@ def min_hg_au_distance(atoms):
     )
 
 
-def min_hg_hg_distance(atoms):
-    """Minimum Hg-Hg distance within the same cell (no MIC)."""
+def min_intra_cluster_hg_hg(atoms):
+    """
+    Minimum Hg-Hg distance WITHIN the same cell (no MIC).
+
+    For a dissociated cluster this measures the smallest gap between
+    any two Hg atoms that happen to be in the same cell — it does NOT
+    measure image coupling.
+    """
     hg = [a for a in atoms if a.symbol == 'Hg']
     if len(hg) < 2:
         return np.inf
@@ -179,15 +195,51 @@ def min_hg_hg_distance(atoms):
     )
 
 
-def min_hg_hg_image_distance(atoms):
-    """Minimum Hg-Hg distance including periodic images (MIC)."""
-    hg_idx = [a.index for a in atoms if a.symbol == 'Hg']
-    if len(hg_idx) < 2:
+def cluster_lateral_extent(atoms, symbol='Hg'):
+    """
+    Maximum lateral (xy) extent of the cluster along either axis.
+
+    This is the physically meaningful "size" of the cluster's
+    footprint, used to compute the edge-to-edge gap to periodic
+    images.
+    """
+    pos = np.array([a.position for a in atoms if a.symbol == symbol])
+    if len(pos) < 2:
+        return 0.0
+    x_extent = pos[:, 0].max() - pos[:, 0].min()
+    y_extent = pos[:, 1].max() - pos[:, 1].min()
+    return float(max(x_extent, y_extent))
+
+
+def edge_to_edge_gap(atoms, symbol='Hg'):
+    """
+    Minimum edge-to-edge gap between the cluster and its periodic
+    replica along either lateral cell direction.
+
+    This is the CORRECT metric for periodic-image coupling:
+      gap = min(cell_side_a - extent_a, cell_side_b - extent_b)
+
+    For a cluster that fits comfortably in the cell, this is the
+    distance from the cluster's bounding box to its nearest
+    periodic image.
+
+    Unlike min_hg_hg_image_distance(), this metric is unambiguous
+    for both intact and dissociated clusters.
+    """
+    cell = atoms.cell
+    a1 = np.linalg.norm(cell[0])
+    a2 = np.linalg.norm(cell[1])
+
+    pos = np.array([a.position for a in atoms if a.symbol == symbol])
+    if len(pos) < 2:
         return None
-    D = atoms.get_all_distances(mic=True)
-    sub = D[np.ix_(hg_idx, hg_idx)].copy()
-    np.fill_diagonal(sub, np.inf)
-    return float(sub.min())
+
+    x_extent = pos[:, 0].max() - pos[:, 0].min()
+    y_extent = pos[:, 1].max() - pos[:, 1].min()
+
+    gap_a = a1 - x_extent
+    gap_b = a2 - y_extent
+    return float(min(gap_a, gap_b))
 
 
 def radius_of_gyration(atoms, symbol='Hg'):
@@ -197,6 +249,7 @@ def radius_of_gyration(atoms, symbol='Hg'):
 
 
 def cluster_diameter(atoms, symbol='Hg'):
+    """Maximum pairwise distance within the cluster (no MIC)."""
     pos = np.array([a.position for a in atoms if a.symbol == symbol])
     if len(pos) < 2:
         return 0.0
@@ -209,7 +262,7 @@ def cluster_diameter(atoms, symbol='Hg'):
 
 
 def lateral_footprint(atoms, symbol='Hg'):
-    """Lateral extent (xy) of the cluster — a wetting descriptor."""
+    """Lateral extent (xy) of the cluster as a Euclidean distance."""
     pos = np.array([a.position for a in atoms if a.symbol == symbol])
     if len(pos) < 2:
         return 0.0
@@ -238,8 +291,6 @@ def fcc_hollow_position(slab):
 def save_vasp(atoms, filename):
     """
     Write a VASP POSCAR file readable by VESTA.
-
-    VESTA opens files with the .vasp extension directly.
     """
     write(filename, atoms, format='vasp', vasp5=True, direct=False)
     print(f"    wrote {filename}")
@@ -253,17 +304,18 @@ def report_cell_checks(slab, cluster):
     a_avg = 0.5 * (np.linalg.norm(cell[0]) + np.linalg.norm(cell[1]))
     d_cluster = cluster_diameter(cluster, 'Hg')
     ratio = a_avg / d_cluster
-    edge_gap = a_avg - d_cluster
+    gap = a_avg - d_cluster
 
     print(f"  --- Cell size checks ---")
     print(f"  Cell side (avg in-plane):   {a_avg:.2f} Å")
     print(f"  Cluster diameter:           {d_cluster:.2f} Å")
     print(f"  Cell/cluster ratio:         {ratio:.2f}")
-    print(f"  Edge-to-edge gap:           {edge_gap:6.2f} Å")
-    if ratio < IMAGE_WARN_RATIO:
-        print(f"  WARNING: cell/cluster ratio < {IMAGE_WARN_RATIO:.1f}")
+    print(f"  Edge-to-edge gap (isolated):{gap:6.2f} Å")
+    if gap < EDGE_GAP_WARN:
+        print(f"  WARNING: edge-to-edge gap < {EDGE_GAP_WARN:.1f} Å "
+              f"at start.")
     else:
-        print(f"  Cell is large enough.")
+        print(f"  Cell is large enough for the isolated cluster.")
 
     z_slab = slab.positions[:, 2].max() - slab.positions[:, 2].min()
     z_cluster = cluster.positions[:, 2].max() - cluster.positions[:, 2].min()
@@ -282,23 +334,38 @@ def report_cell_checks(slab, cluster):
 
 
 def report_image_checks(final):
+    """
+    Report image-coupling diagnostics using the CORRECT metric.
+
+    The correct metric is the edge-to-edge gap: the distance from
+    the cluster's lateral bounding box to its nearest periodic image.
+    This is unambiguous for both intact and dissociated clusters.
+
+    For comparison, we also report the intra-cluster minimum Hg-Hg
+    distance, but this is a shape diagnostic, NOT an image metric.
+    """
     cell = final.cell
     a_avg = 0.5 * (np.linalg.norm(cell[0]) + np.linalg.norm(cell[1]))
-    d_ads = cluster_diameter(final, 'Hg')
-    d_hg_hg = min_hg_hg_image_distance(final)
-    edge_gap = a_avg - d_ads
+
+    lateral_extent = cluster_lateral_extent(final, 'Hg')
+    gap = edge_to_edge_gap(final, 'Hg')
+    d_intra = min_intra_cluster_hg_hg(final)
 
     print(f"  --- Post-relaxation image checks ---")
     print(f"  Cell side (avg in-plane):   {a_avg:.2f} Å")
-    print(f"  Adsorbed cluster diameter:  {d_ads:.2f} Å")
-    print(f"  Edge-to-edge gap:           {edge_gap:6.2f} Å")
-    print(f"  Min Hg-Hg image distance:   {d_hg_hg:.3f} Å")
+    print(f"  Cluster lateral extent:     {lateral_extent:.2f} Å")
+    print(f"  Edge-to-edge gap:           {gap:6.2f} Å")
+    print(f"  Min intra-cluster Hg-Hg:    {d_intra:.3f} Å")
 
-    if d_hg_hg < IMAGE_WARN_HG_HG:
-        print(f"  WARNING: Hg-Hg image distance < "
-              f"{IMAGE_WARN_HG_HG:.1f} Å — periodic images may interact.")
+    if gap < EDGE_GAP_WARN:
+        print(f"  WARNING: edge-to-edge gap < {EDGE_GAP_WARN:.1f} Å — "
+              f"periodic images may interact.")
+    elif gap < EDGE_GAP_NOTE:
+        print(f"  NOTE: edge-to-edge gap < {EDGE_GAP_NOTE:.1f} Å — "
+              f"weak coupling possible.")
     else:
-        print(f"  Hg-Hg image distance is large enough.")
+        print(f"  ✅ No significant periodic-image interaction "
+              f"(gap > {EDGE_GAP_NOTE:.1f} Å).")
 
 
 # ============================================================
@@ -346,19 +413,16 @@ cluster_iso.center(vacuum=VACUUM)
 n_hg = len(cluster_iso)
 print(f"  Cluster size: {n_hg} Hg atoms")
 
-# Verify intra-cluster Hg-Hg distances BEFORE any calculation
-dmin_start_iso = min_hg_hg_distance(cluster_iso)
+dmin_start_iso = min_intra_cluster_hg_hg(cluster_iso)
 print(f"  Min Hg-Hg distance (initial): {dmin_start_iso:.3f} Å")
 assert dmin_start_iso > MIN_ALLOWED_HG_HG, (
     f"Hg-Hg overlap in isolated cluster: {dmin_start_iso:.3f} Å"
 )
 
-# --- VASP output: initial ---
 save_vasp(cluster_iso, "cluster_initial.vasp")
 
 E_cluster, fmax_c, nsteps_c = get_relaxed_energy(cluster_iso, "cluster_iso")
 
-# --- VASP output: final ---
 save_vasp(cluster_iso, "cluster_final.vasp")
 
 rg_iso = radius_of_gyration(cluster_iso, 'Hg')
@@ -379,12 +443,10 @@ print("=" * 68)
 slab_clean = fcc111('Au', size=SLAB_SIZE, vacuum=VACUUM)
 print(f"  Slab: {len(slab_clean)} Au atoms, no constraints")
 
-# --- VASP output: initial ---
 save_vasp(slab_clean, "slab_initial.vasp")
 
 E_slab, fmax_s, nsteps_s = get_relaxed_energy(slab_clean, "slab_clean")
 
-# --- VASP output: final ---
 save_vasp(slab_clean, "slab_final.vasp")
 
 
@@ -405,12 +467,10 @@ print()
 
 fcc_xy = fcc_hollow_position(slab)
 
-# Vertical placement
 z_top         = slab.positions[:, 2].max()
 z_cluster_min = cluster.positions[:, 2].min()
 shift_z       = z_top + ADS_HEIGHT - z_cluster_min
 
-# Lateral placement over fcc hollow
 hg_com_xy = np.mean(cluster.positions[:, :2], axis=0)
 shift_xy  = fcc_xy - hg_com_xy
 
@@ -418,9 +478,8 @@ cluster.translate([shift_xy[0], shift_xy[1], shift_z])
 
 system = slab + cluster
 
-# --- Diagnostics BEFORE relaxation ---
 dmin_hg_au = min_hg_au_distance(system)
-dmin_hg_hg = min_hg_hg_distance(system)
+dmin_hg_hg = min_intra_cluster_hg_hg(system)
 print(f"  Atoms: {len(system)} ({len(slab)} Au + {len(cluster)} Hg)")
 print(f"  Min Hg-Au distance (start):  {dmin_hg_au:.3f} Å")
 print(f"  Min Hg-Hg distance (start):  {dmin_hg_hg:.3f} Å")
@@ -440,10 +499,8 @@ assert d_fcc < 0.5, (
     f"Cluster not placed over fcc: offset = {d_fcc:.3f} Å"
 )
 
-# --- VASP output: initial ---
 save_vasp(system, "total_initial.vasp")
 
-# Pre-relaxation energy guard
 system.calc = calc
 E_initial = system.get_potential_energy()
 print(f"  Initial energy (step 0):     {E_initial:.3f} eV")
@@ -453,12 +510,10 @@ if E_initial > 0:
         "geometry has severe overlap."
     )
 
-# Relax
 E_total, fmax_t, nsteps_t = get_relaxed_energy(
     system, "total_system", monitor_com=True
 )
 
-# --- VASP output: final ---
 save_vasp(system, "total_final.vasp")
 
 
@@ -472,7 +527,7 @@ print("=" * 68)
 final = read('total_system.traj', index=-1)
 
 dmin_hg_au_end = min_hg_au_distance(final)
-dmin_hg_hg_end = min_hg_hg_distance(final)
+dmin_hg_hg_end = min_intra_cluster_hg_hg(final)
 rg_ads   = radius_of_gyration(final, 'Hg')
 d_ads    = cluster_diameter(final, 'Hg')
 fp_ads   = lateral_footprint(final, 'Hg')
@@ -492,7 +547,6 @@ print(f"  Footprint ratio (ads/iso):   {fp_ads / fp_iso:.3f}")
 print()
 report_image_checks(final)
 
-# Contact / shape checks
 print()
 if dmin_hg_au_end < MIN_ALLOWED_HG_AU:
     print("  WARNING: Hg and Au atoms are still overlapping.")
