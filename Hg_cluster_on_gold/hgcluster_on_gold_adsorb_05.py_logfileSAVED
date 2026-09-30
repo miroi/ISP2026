@@ -1,0 +1,105 @@
+(molmatmodel) milias@DESKTOP-7OTLCGO:~/work/projects/ISP2026/Hg_cluster_on_gold/.python  hgcluster_on_gold_adsorb_05.py --cluster hg4
+Initializing MACE (medium, float64, cuda, dispersion=True)...
+Using Materials Project MACE for MACECalculator with /home/milias/.cache/mace/20231203mace128L1_epoch199model
+Using float64 for MACECalculator, which is slower but more accurate. Recommended for geometry optimization.
+Using TorchDFTD3Calculator for D3 dispersion corrections
+MACE calculator ready.
+
+====================================================================
+[1/3] Isolated HG4 cluster
+====================================================================
+  Cluster size: 4 Hg atoms
+  Min Hg-Hg distance (initial): 3.000 Å
+    wrote cluster_initial.vasp
+Optimizing cluster_iso...
+  cluster_iso: E = -0.210612 eV, fmax = 0.024373 eV/A  [OK, 5 steps]
+    wrote cluster_final.vasp
+  Cluster Rg (isolated):       2.124 Å
+  Cluster diameter (iso):      3.468 Å
+  Lateral footprint (iso):     4.588 Å
+
+====================================================================
+[2/3] Clean Au(111) slab (5, 5, 4)
+====================================================================
+  Slab: 100 Au atoms, no constraints
+    wrote slab_initial.vasp
+Optimizing slab_clean...
+  slab_clean: E = -358.980749 eV, fmax = 0.024866 eV/A  [OK, 7 steps]
+    wrote slab_final.vasp
+
+====================================================================
+[3/3] HG4 / Au(111) (5, 5, 4)
+====================================================================
+  --- Cell size checks ---
+  Cell side (avg in-plane):   14.42 Å
+  Cluster diameter:           3.00 Å
+  Cell/cluster ratio:         4.81
+  Edge-to-edge gap (isolated): 11.42 Å
+  Cell is large enough for the isolated cluster.
+  --- Vacuum checks ---
+  Cell height (z):            47.07 Å
+  Slab thickness:             7.07 Å
+  Cluster thickness:          2.45 Å
+  Effective vacuum:           37.55 Å
+  Vacuum is sufficient.
+
+  Atoms: 104 (100 Au + 4 Hg)
+  Min Hg-Au distance (start):  2.501 Å
+  Min Hg-Hg distance (start):  3.000 Å
+  Hg COM distance from fcc site: 0.000 Å
+    wrote total_initial.vasp
+  Initial energy (step 0):     -359.528 eV
+Optimizing total_system...
+  total_system: E = -363.193995 eV, fmax = 0.043617 eV/A  [OK, 51 steps]
+  Lateral COM drift: 0.000 Å (dx = +0.000, dy = -0.000)
+    wrote total_final.vasp
+
+====================================================================
+Geometry diagnostics (final frame)
+====================================================================
+  Min Hg-Au distance (end):    2.900 Å
+  Min Hg-Hg distance (end):    3.688 Å
+  Cluster Rg (adsorbed):       3.194 Å
+  Cluster Rg (isolated):       2.124 Å
+  Rg ratio (ads/iso):          1.504
+  Cluster diameter (ads):      6.387 Å
+  Cluster diameter (iso):      3.468 Å
+  Diameter ratio (ads/iso):    1.842
+  Lateral footprint (ads):     8.450 Å
+  Lateral footprint (iso):     4.588 Å
+  Footprint ratio (ads/iso):   1.842
+
+  --- Post-relaxation image checks ---
+  Cell side (avg in-plane):   14.42 Å
+  Cluster lateral extent:     6.39 Å
+  Edge-to-edge gap:             8.04 Å
+  Min intra-cluster Hg-Hg:    3.688 Å
+  NOTE: edge-to-edge gap < 10.0 Å — weak coupling possible.
+
+  Hg cluster is in contact with the surface.
+  WARNING: cluster has spread out (>30% Rg increase).
+
+====================================================================
+Result  (HG4 on Au(111))
+====================================================================
+  Slab:             (5, 5, 4) (100 Au atoms)
+  Vacuum:           20.0 Å
+  Cluster:          HG4 (4 Hg atoms)
+  E_total          =  -363.193995 eV
+  E_slab           =  -358.980749 eV
+  E_cluster        =    -0.210612 eV
+  -----------------------------------------
+  E_ads (cluster)  =    -4.002633 eV
+  E_ads / Hg atom  =    -1.000658 eV
+====================================================================
+The adsorption is EXOTHERMIC (stable).
+
+Convergence: all OK
+
+VESTA-ready output files:
+  cluster_initial.vasp
+  cluster_final.vasp
+  slab_initial.vasp
+  slab_final.vasp
+  total_initial.vasp
+  total_final.vasp
