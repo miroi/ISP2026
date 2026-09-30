@@ -4,7 +4,7 @@ Hg-minicluster on Gold111
 (molmatmodel) milias@DESKTOP-7OTLCGO:~/work/projects/ISP2026/Hg_cluster_on_gold/.python  hgcluster_on_gold_adsorb_05.py --cluster hg4
 
 deepseek: https://chat.deepseek.com/share/l4m611k81aa06nij55
-
+          https://chat.deepseek.com/share/danhht66sieepbzlhc
 
 Section 4 — Physical interpretation
 
